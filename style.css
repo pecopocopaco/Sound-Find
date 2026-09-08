@@ -413,6 +413,47 @@ body::before {
 .proximity-message.closer { border-color: var(--teal); color: var(--teal); }
 .proximity-message.farther { border-color: var(--red); color: #ffb3ab; }
 
+/* proximity gauge — 近づくほど伸びて赤くなり、点滅も速くなる */
+.proximity-gauge {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.proximity-gauge-track {
+  flex: 1;
+  height: 12px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  position: relative;
+}
+.proximity-gauge-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 8px 0 0 8px;
+  background: linear-gradient(90deg, var(--teal) 0%, var(--amber) 55%, var(--red) 100%);
+  transition: width 0.35s ease;
+  animation: proximityPulse 1.8s ease-in-out infinite;
+}
+.proximity-gauge-label {
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 68px;
+  text-align: right;
+  color: var(--text-dim);
+  transition: color 0.3s ease;
+}
+.proximity-gauge-label.cold { color: var(--text-dim); }
+.proximity-gauge-label.warm { color: var(--amber); }
+.proximity-gauge-label.hot  { color: var(--red); }
+
+@keyframes proximityPulse {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.45); }
+}
+
 .mode-note {
   margin-top: 10px;
   font-size: 11.5px;

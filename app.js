@@ -38,6 +38,9 @@ const el = {
   resultLevel: document.getElementById('result-level'),
 
   proximityMessage: document.getElementById('proximity-message'),
+  proximityGauge: document.getElementById('proximity-gauge'),
+  proximityGaugeFill: document.getElementById('proximity-gauge-fill'),
+  proximityGaugeLabel: document.getElementById('proximity-gauge-label'),
   modeNote: document.getElementById('mode-note'),
 
   historyCanvas: document.getElementById('history-canvas'),
@@ -115,6 +118,9 @@ const state = {
   trackTargetAngle: null,
   trackSnapshots: [],     // periodic {t, level} for closer/farther comparison
   trackLastSnapshotTime: 0,
+  trackMin: Infinity,
+  trackMax: -Infinity,
+  proximityRatio: 0,      // 0(遠い) 〜 1(かなり近い), tracking中のみ意味を持つ
 
   rafId: null,
 };
@@ -369,6 +375,7 @@ function setMode(mode) {
       setHidden(el.scanInstruction, true);
       setHidden(el.resultReadout, true);
       setHidden(el.proximityMessage, true);
+      el.proximityGauge.hidden = true;
       el.btnPrimary.textContent = '360°探索開始';
       el.btnPrimary.disabled = false;
       setHidden(el.btnSecondary, true);
@@ -380,6 +387,7 @@ function setMode(mode) {
       setHidden(el.scanInstruction, false);
       setHidden(el.resultReadout, true);
       setHidden(el.proximityMessage, true);
+      el.proximityGauge.hidden = true;
       el.btnPrimary.textContent = '結果を見る';
       el.btnPrimary.disabled = false;
       el.btnSecondary.textContent = 'キャンセル';
@@ -392,6 +400,8 @@ function setMode(mode) {
       el.radarLabel.textContent = '推定音源方向';
       setHidden(el.scanInstruction, true);
       setHidden(el.resultReadout, false);
+      setHidden(el.proximityMessage, true);
+      el.proximityGauge.hidden = true;
       el.btnPrimary.textContent = '音源を追跡';
       el.btnPrimary.disabled = false;
       el.btnSecondary.textContent = '再スキャン';
@@ -686,7 +696,43 @@ function startTracking() {
   }
   state.trackSnapshots = [{ t: performance.now(), level: state.displayLevel }];
   state.trackLastSnapshotTime = performance.now();
+  state.trackMin = state.displayLevel;
+  state.trackMax = state.displayLevel;
+  state.proximityRatio = 0;
+  el.proximityGauge.hidden = false;
   setMode('tracking');
+}
+
+function updateProximityGauge() {
+  const level = state.displayLevel;
+  state.trackMin = Math.min(state.trackMin, level);
+  state.trackMax = Math.max(state.trackMax, level);
+  const range = state.trackMax - state.trackMin;
+
+  if (range < 3) {
+    state.proximityRatio = 0;
+    el.proximityGaugeFill.style.width = '6%';
+    el.proximityGaugeFill.style.animationDuration = '1.8s';
+    el.proximityGaugeLabel.textContent = '計測中';
+    el.proximityGaugeLabel.className = 'proximity-gauge-label';
+    return;
+  }
+
+  const ratio = clamp((level - state.trackMin) / range, 0, 1);
+  state.proximityRatio = ratio;
+
+  el.proximityGaugeFill.style.width = `${6 + ratio * 94}%`;
+  // 近づくほど点滅を速く（1.8秒 → 0.35秒）
+  const duration = 1.8 - ratio * 1.45;
+  el.proximityGaugeFill.style.animationDuration = `${duration.toFixed(2)}s`;
+
+  let label, cls;
+  if (ratio < 0.3) { label = '遠い'; cls = 'cold'; }
+  else if (ratio < 0.6) { label = '接近中'; cls = 'warm'; }
+  else if (ratio < 0.85) { label = 'かなり近い'; cls = 'hot'; }
+  else { label = '目の前かも'; cls = 'hot'; }
+  el.proximityGaugeLabel.textContent = label;
+  el.proximityGaugeLabel.className = `proximity-gauge-label ${cls}`;
 }
 
 function updateProximity() {
@@ -899,11 +945,24 @@ function drawRadar() {
   if (targetBearing != null) {
     const screenAngle = targetBearing - heading;
     const [mx, my] = polar(cx, cy, R * 0.98, screenAngle);
+
+    let dotR = R * 0.055;
+    let glowBlur = R * 0.08;
+    let dotColor = '#ff6b5e';
+    if (state.mode === 'tracking') {
+      const ratio = state.proximityRatio || 0;
+      const period = 1800 - ratio * 1450; // ms、近いほど速く点滅
+      const phase = (performance.now() % period) / period;
+      const pulse = 0.5 + 0.5 * Math.sin(phase * TWO_PI);
+      dotR = R * (0.05 + 0.035 * ratio * pulse);
+      glowBlur = R * (0.06 + 0.14 * ratio * pulse);
+    }
+
     ctx.beginPath();
-    ctx.arc(mx, my, R * 0.055, 0, TWO_PI);
-    ctx.fillStyle = '#ff6b5e';
+    ctx.arc(mx, my, dotR, 0, TWO_PI);
+    ctx.fillStyle = dotColor;
     ctx.shadowColor = 'rgba(255, 107, 94, 0.65)';
-    ctx.shadowBlur = R * 0.08;
+    ctx.shadowBlur = glowBlur;
     ctx.fill();
     ctx.shadowBlur = 0;
 
@@ -993,6 +1052,7 @@ function renderLoop() {
   }
   if (state.mode === 'tracking') {
     updateProximity();
+    updateProximityGauge();
   }
 
   state.rafId = requestAnimationFrame(renderLoop);
