@@ -157,7 +157,11 @@ async function onStartPressed() {
     return;
   }
 
-  // 1) マイク権限
+  // 1) 方向センサー権限（iOSはタップ直後でないと許可ダイアログが出ないため、
+  //    他の権限要求より先に・同じユーザー操作の中で呼び出す）
+  await initOrientation();
+
+  // 2) マイク権限
   try {
     await initAudio();
   } catch (err) {
@@ -171,9 +175,6 @@ async function onStartPressed() {
     }
     return;
   }
-
-  // 2) モーション・方向センサー権限（iOS 13+ ではユーザー操作起点でのみ要求できる）
-  await initOrientation();
 
   // 3) メイン画面へ
   el.viewStart.classList.remove('is-active');
@@ -272,42 +273,47 @@ async function initOrientation() {
   const DOE = window.DeviceOrientationEvent;
   const DME = window.DeviceMotionEvent;
 
+  // 方位センサー権限。iOSではタップした瞬間の操作コンテキストの中で
+  // 呼ばないとダイアログ自体が表示されないため、ここで即座に要求する。
   try {
     if (DOE && typeof DOE.requestPermission === 'function') {
       const res = await DOE.requestPermission();
       if (res === 'granted') {
         window.addEventListener('deviceorientation', handleOrientation, true);
+      } else {
+        state.orientationDenied = true;
       }
     } else if (DOE) {
       window.addEventListener('deviceorientation', handleOrientation, true);
+    } else {
+      state.orientationUnsupported = true;
     }
   } catch (_) {
-    /* 権限拒否・未対応 → 後段のフォールバックへ */
+    state.orientationDenied = true;
   }
 
-  // 一定時間内に deviceorientation が来なければ、モーションセンサーによる
-  // 相対回転の代替モード、それも無ければ方向機能なしで続行する。
-  setTimeout(async () => {
-    if (state.orientationSource !== 'none') return;
-
-    try {
-      if (DME && typeof DME.requestPermission === 'function') {
-        const res = await DME.requestPermission();
-        if (res === 'granted') {
-          window.addEventListener('devicemotion', handleMotionFallback, true);
-        }
-      } else if (DME) {
+  // モーションセンサー権限（コンパスが使えない場合のフォールバック用）も
+  // 同じユーザー操作の中でまとめて要求しておく。後から要求すると
+  // 操作コンテキストが失われ、ダイアログが出なくなるため。
+  try {
+    if (DME && typeof DME.requestPermission === 'function') {
+      const res = await DME.requestPermission();
+      if (res === 'granted') {
         window.addEventListener('devicemotion', handleMotionFallback, true);
       }
-    } catch (_) { /* noop */ }
+    } else if (DME) {
+      window.addEventListener('devicemotion', handleMotionFallback, true);
+    }
+  } catch (_) { /* noop */ }
 
-    setTimeout(() => {
-      if (state.orientationSource === 'none') {
-        updateModeNote();
-        syncIdleAvailability();
-      }
-    }, 1500);
-  }, 1500);
+  // 数秒待っても deviceorientation が一度も来なければ、方向機能なし/
+  // 相対モードとして扱う。
+  setTimeout(() => {
+    if (state.orientationSource === 'none') {
+      updateModeNote();
+      syncIdleAvailability();
+    }
+  }, 3000);
 }
 
 function handleOrientation(e) {
