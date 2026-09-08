@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0a0e0f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SoundFinder">
+<meta name="description" content="マイクと端末センサーだけで、周囲の音源の方向を推定します。音声データは一切外部へ送信されません。">
+<title>Sound Finder</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ============ START SCREEN ============ -->
+  <section id="view-start" class="view is-active" aria-label="スタート画面">
+    <div class="start-wrap">
+      <div class="start-mark" aria-hidden="true">
+        <svg viewBox="0 0 100 100" width="72" height="72">
+          <circle cx="50" cy="50" r="46" class="ring ring-outer"/>
+          <circle cx="50" cy="50" r="30" class="ring"/>
+          <circle cx="50" cy="50" r="14" class="ring"/>
+          <line x1="50" y1="4" x2="50" y2="96" class="cross"/>
+          <line x1="4" y1="50" x2="96" y2="50" class="cross"/>
+          <circle cx="50" cy="50" r="4" class="center-dot"/>
+        </svg>
+      </div>
+      <h1 class="wordmark">SOUND FINDER</h1>
+      <p class="tagline">周囲の音源を探します</p>
+
+      <button id="btn-start" class="btn btn-primary btn-lg" type="button">START</button>
+
+      <div class="mic-consent">
+        <p>マイクを使用します</p>
+        <p class="mic-consent-detail">
+          このアプリはマイクを使用します。音声データは外部へ送信せず、端末上で解析します。
+        </p>
+      </div>
+
+      <p id="start-error" class="start-error" role="alert" hidden></p>
+    </div>
+  </section>
+
+  <!-- ============ MAIN SCREEN ============ -->
+  <section id="view-main" class="view" aria-label="メイン画面">
+
+    <header class="topbar">
+      <div class="topbar-title">
+        <span class="topbar-mark" aria-hidden="true"></span>
+        SOUND FINDER
+      </div>
+      <div class="topbar-status" id="status-badge">待機中</div>
+      <button id="btn-settings" class="icon-btn" type="button" aria-label="周波数フィルター設定">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 6h10M18 6h2M4 12h2M8 12h12M4 18h14M20 18h0" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><circle cx="16" cy="6" r="2.4" fill="currentColor"/><circle cx="6" cy="12" r="2.4" fill="currentColor"/><circle cx="16" cy="18" r="2.4" fill="currentColor"/></svg>
+      </button>
+    </header>
+
+    <main class="content">
+
+      <!-- 相対音量 -->
+      <section class="panel panel-level">
+        <div class="panel-row">
+          <span class="panel-label">相対音量</span>
+          <span class="mono readout-level"><span id="level-value">0</span></span>
+        </div>
+        <div class="level-meter" role="img" aria-label="相対音量メーター">
+          <div id="level-fill" class="level-fill"></div>
+        </div>
+      </section>
+
+      <!-- 周波数スペクトラム -->
+      <section class="panel panel-spectrum">
+        <div class="panel-row">
+          <span class="panel-label">周波数スペクトラム</span>
+          <span class="mono readout-freq"><span id="freq-value">–</span> Hz</span>
+        </div>
+        <canvas id="spectrum-canvas" class="spectrum-canvas"></canvas>
+        <div class="spectrum-scale">
+          <span>20Hz</span><span>1k</span><span>5k</span><span>20k</span>
+        </div>
+        <button id="btn-lock-freq" class="btn btn-ghost btn-sm" type="button">
+          この周波数を追跡
+        </button>
+      </section>
+
+      <!-- レーダー / 方向 -->
+      <section class="panel panel-radar">
+        <div class="panel-row">
+          <span class="panel-label" id="radar-label">現在方向</span>
+          <span class="mono readout-heading"><span id="heading-value">–</span>°</span>
+        </div>
+
+        <div class="radar-wrap">
+          <canvas id="radar-canvas" class="radar-canvas"></canvas>
+          <div id="scan-instruction" class="scan-instruction" hidden>
+            iPhoneを水平に保ち、<br>ゆっくり360°回してください
+          </div>
+        </div>
+
+        <div id="result-readout" class="result-readout" hidden>
+          <div class="result-row">
+            <span class="result-label">音源方向</span>
+            <span class="mono result-value" id="result-angle">–°</span>
+          </div>
+          <div class="result-row">
+            <span class="result-label">信頼度</span>
+            <span class="confidence-pill" id="result-confidence">–</span>
+          </div>
+          <div class="result-row">
+            <span class="result-label">主な周波数</span>
+            <span class="mono result-value" id="result-freq">– Hz</span>
+          </div>
+          <div class="result-row">
+            <span class="result-label">最大相対音量</span>
+            <span class="mono result-value" id="result-level">–</span>
+          </div>
+        </div>
+
+        <p id="proximity-message" class="proximity-message" hidden></p>
+
+        <div id="mode-note" class="mode-note" hidden></div>
+      </section>
+
+      <!-- 音量履歴 -->
+      <section class="panel panel-history">
+        <div class="panel-row">
+          <span class="panel-label">音量履歴</span>
+        </div>
+        <canvas id="history-canvas" class="history-canvas"></canvas>
+      </section>
+
+      <!-- フィルター（設定パネル、折りたたみ） -->
+      <section id="filter-panel" class="panel panel-filter" hidden>
+        <div class="panel-row">
+          <span class="panel-label">解析帯域</span>
+        </div>
+        <div class="filter-options" id="filter-options">
+          <button class="chip is-active" data-filter="full">全帯域</button>
+          <button class="chip" data-filter="low">低音 20–250Hz</button>
+          <button class="chip" data-filter="mid">中音 250–2000Hz</button>
+          <button class="chip" data-filter="high">高音 2000–10000Hz</button>
+          <button class="chip" data-filter="custom">カスタム</button>
+        </div>
+        <div id="custom-filter-inputs" class="custom-filter-inputs" hidden>
+          <label>最低周波数 <input id="custom-min" type="number" inputmode="numeric" min="20" max="20000" value="20"> Hz</label>
+          <label>最高周波数 <input id="custom-max" type="number" inputmode="numeric" min="20" max="20000" value="20000"> Hz</label>
+        </div>
+
+        <div class="panel-row panel-row-tight">
+          <span class="panel-label">追跡範囲（±Hz）</span>
+          <input id="lock-bandwidth" type="number" inputmode="numeric" class="mono small-input" min="5" max="500" value="50">
+        </div>
+
+        <button id="btn-close-filter" class="btn btn-ghost btn-sm" type="button">閉じる</button>
+      </section>
+
+    </main>
+
+    <!-- 操作ボタン（親指操作エリア） -->
+    <footer class="action-bar">
+      <p id="action-hint" class="action-hint"></p>
+      <div class="action-buttons">
+        <button id="btn-secondary" class="btn btn-secondary" type="button" hidden></button>
+        <button id="btn-primary" class="btn btn-primary" type="button">360°探索開始</button>
+      </div>
+    </footer>
+
+  </section>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
