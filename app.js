@@ -52,6 +52,7 @@ const el = {
   customMax: document.getElementById('custom-max'),
   lockBandwidth: document.getElementById('lock-bandwidth'),
   btnCloseFilter: document.getElementById('btn-close-filter'),
+  btnInvertDirection: document.getElementById('btn-invert-direction'),
 
   actionHint: document.getElementById('action-hint'),
   btnPrimary: document.getElementById('btn-primary'),
@@ -109,10 +110,14 @@ const state = {
 
   // result
   resultAngle: null,
+  rawPeakAngle: null,
   resultConfidenceLabel: null,
   resultFreq: null,
   resultLevel: null,
   resultBuckets: null,
+
+  // 方向反転（マイク位置と持ち方の影響で推定方向が逆に感じる場合の補正）
+  invertDirection: localStorage.getItem('sf_invert_direction') === '1',
 
   // tracking
   trackTargetAngle: null,
@@ -639,20 +644,46 @@ function finishScan() {
   }
 
   state.resultAngle = refinedAngle;
+  state.rawPeakAngle = refinedAngle;
   state.resultConfidenceLabel = confidence;
   state.resultFreq = filledFreqs[peakIdx] != null ? Math.round(filledFreqs[peakIdx]) : state.displayFreq;
   state.resultLevel = Math.round(curr);
   state.resultBuckets = filledLevels;
 
-  el.resultAngle.textContent = `${Math.round(refinedAngle)}°`;
   el.resultConfidence.textContent = { high: '高', mid: '中', low: '低' }[confidence];
   el.resultConfidence.className = `confidence-pill ${confidence}`;
   el.resultFreq.textContent = `${state.resultFreq} Hz`;
   el.resultLevel.textContent = `${state.resultLevel}`;
+  refreshResultAngleDisplay();
 
   state.trackSnapshots = [];
   setMode('result');
 }
+
+function correctedBearing(raw) {
+  return normalizeAngle(raw + (state.invertDirection ? 180 : 0));
+}
+
+function refreshResultAngleDisplay() {
+  if (state.rawPeakAngle == null) return;
+  state.resultAngle = correctedBearing(state.rawPeakAngle);
+  el.resultAngle.textContent = `${Math.round(state.resultAngle)}°`;
+  if (state.mode === 'tracking') {
+    state.trackTargetAngle = state.resultAngle;
+  }
+}
+
+el.btnInvertDirection.addEventListener('click', () => {
+  state.invertDirection = !state.invertDirection;
+  localStorage.setItem('sf_invert_direction', state.invertDirection ? '1' : '0');
+  el.btnInvertDirection.textContent = state.invertDirection ? 'ON' : 'OFF';
+  el.btnInvertDirection.classList.toggle('is-active', state.invertDirection);
+  refreshResultAngleDisplay();
+});
+
+// 起動時にボタンの初期表示を反映
+el.btnInvertDirection.textContent = state.invertDirection ? 'ON' : 'OFF';
+el.btnInvertDirection.classList.toggle('is-active', state.invertDirection);
 
 function interpolateCircular(arr) {
   const n = arr.length;

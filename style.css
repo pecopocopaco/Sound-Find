@@ -513,6 +513,13 @@ body::before {
   width: 90px;
 }
 
+.invert-hint {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-faint);
+}
+
 input[type="number"] {
   background: var(--bg);
   border: 1px solid var(--line);
