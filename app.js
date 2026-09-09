@@ -117,7 +117,7 @@ const state = {
   resultBuckets: null,
 
   // 方向反転（マイク位置と持ち方の影響で推定方向が逆に感じる場合の補正）
-  invertDirection: localStorage.getItem('sf_invert_direction') === '1',
+  invertDirection: safeGetLocalStorage('sf_invert_direction') === '1',
 
   // tracking
   trackTargetAngle: null,
@@ -151,6 +151,13 @@ function normalizeAngle(a) {
 }
 
 function setHidden(node, hidden) { node.hidden = hidden; }
+
+function safeGetLocalStorage(key) {
+  try { return window.localStorage.getItem(key); } catch (_) { return null; }
+}
+function safeSetLocalStorage(key, value) {
+  try { window.localStorage.setItem(key, value); } catch (_) { /* noop */ }
+}
 
 /* ---------------------------------------------------------------------- */
 /* Start flow: consent + permissions                                       */
@@ -230,6 +237,19 @@ async function initAudio() {
   }
 
   const source = audioCtx.createMediaStreamSource(stream);
+
+  // iOSではAudioContextがサスペンド状態のまま音声処理が始まらないことがある。
+  // 起動時のresume()が通らなかった場合に備え、以降のどんな操作でも
+  // 再開を試みるようにしておく（インジケーターが動かない対策）。
+  const tryResume = () => {
+    if (audioCtx.state !== 'running') {
+      audioCtx.resume().catch(() => { /* noop */ });
+    }
+  };
+  ['touchend', 'click', 'visibilitychange'].forEach((evt) => {
+    document.addEventListener(evt, tryResume, true);
+  });
+  state.audioResumeInterval = setInterval(tryResume, 1000);
   const trackSettings = stream.getAudioTracks()[0]?.getSettings?.() || {};
   const channelCount = trackSettings.channelCount || source.channelCount || 1;
   const isStereo = channelCount >= 2;
@@ -675,7 +695,7 @@ function refreshResultAngleDisplay() {
 
 el.btnInvertDirection.addEventListener('click', () => {
   state.invertDirection = !state.invertDirection;
-  localStorage.setItem('sf_invert_direction', state.invertDirection ? '1' : '0');
+  safeSetLocalStorage('sf_invert_direction', state.invertDirection ? '1' : '0');
   el.btnInvertDirection.textContent = state.invertDirection ? 'ON' : 'OFF';
   el.btnInvertDirection.classList.toggle('is-active', state.invertDirection);
   refreshResultAngleDisplay();
@@ -1073,17 +1093,22 @@ function analyzeFrame() {
 }
 
 function renderLoop() {
-  analyzeFrame();
-  drawSpectrum();
-  drawHistory();
-  drawRadar();
+  try {
+    analyzeFrame();
+    drawSpectrum();
+    drawHistory();
+    drawRadar();
 
-  if (state.mode === 'scanning') {
-    recordScanSample();
-  }
-  if (state.mode === 'tracking') {
-    updateProximity();
-    updateProximityGauge();
+    if (state.mode === 'scanning') {
+      recordScanSample();
+    }
+    if (state.mode === 'tracking') {
+      updateProximity();
+      updateProximityGauge();
+    }
+  } catch (err) {
+    // 1フレームの描画エラーで全インジケーターが停止しないようにする
+    console.error('renderLoop error', err);
   }
 
   state.rafId = requestAnimationFrame(renderLoop);
