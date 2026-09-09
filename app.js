@@ -259,7 +259,7 @@ async function initAudio() {
   analyser.fftSize = 2048;
   analyser.minDecibels = -95;
   analyser.maxDecibels = -10;
-  analyser.smoothingTimeConstant = 0.35;
+  analyser.smoothingTimeConstant = 0.2; // 反応を速くして方向ごとの差を残す
   analyser.channelCount = 1;
   analyser.channelCountMode = 'explicit';
   analyser.channelInterpretation = 'speakers';
@@ -653,22 +653,33 @@ function finishScan() {
   }
   const refinedAngle = normalizeAngle(peakIdx * 10 + refineDeg);
 
-  // 信頼度判定：ピークと隣接方向（±10°）との差
+  // 信頼度判定：フォンマイクは方向による絶対的な音量差が小さいため、
+  // 固定のしきい値ではなく「そのスキャン全体で観測できたばらつきに対して
+  // ピークがどれだけ突出しているか」という相対値で判定する。
+  const range = Math.max(...filledLevels) - Math.min(...filledLevels);
   const neighborAvg = (filledLevels[(peakIdx + 35) % 36] + filledLevels[(peakIdx + 1) % 36]) / 2;
   const diff = curr - neighborAvg;
-  const range = Math.max(...filledLevels) - Math.min(...filledLevels);
+  const diffRatio = range > 0 ? diff / range : 0;
+
   let confidence = 'low';
-  if (range >= 5) {
-    if (diff >= 12) confidence = 'high';
-    else if (diff >= 4) confidence = 'mid';
+  if (range >= 3) {
+    if (diffRatio >= 0.45) confidence = 'high';
+    else if (diffRatio >= 0.18) confidence = 'mid';
   }
+
+  // レーダー表示用に、そのスキャンの最小〜最大を0〜100へ引き伸ばす
+  // （実際の差が小さくても、方向による違いが視覚的にわかりやすくなる）
+  const stretchMax = Math.max(...filledLevels);
+  const stretchMin = Math.min(...filledLevels);
+  const stretchRange = stretchMax - stretchMin || 1;
+  const displayBuckets = filledLevels.map((v) => ((v - stretchMin) / stretchRange) * 100);
 
   state.resultAngle = refinedAngle;
   state.rawPeakAngle = refinedAngle;
   state.resultConfidenceLabel = confidence;
   state.resultFreq = filledFreqs[peakIdx] != null ? Math.round(filledFreqs[peakIdx]) : state.displayFreq;
   state.resultLevel = Math.round(curr);
-  state.resultBuckets = filledLevels;
+  state.resultBuckets = displayBuckets;
 
   el.resultConfidence.textContent = { high: '高', mid: '中', low: '低' }[confidence];
   el.resultConfidence.className = `confidence-pill ${confidence}`;
@@ -1070,7 +1081,7 @@ function analyzeFrame() {
 
   const now = performance.now();
   state.levelHistory.push({ t: now, level: instLevel });
-  state.levelHistory = state.levelHistory.filter((p) => now - p.t <= 750);
+  state.levelHistory = state.levelHistory.filter((p) => now - p.t <= 500);
   const smoothed = state.levelHistory.reduce((a, p) => a + p.level, 0) / state.levelHistory.length;
   state.displayLevel = smoothed;
 
